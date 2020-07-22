@@ -1,0 +1,82 @@
+= ntske-test
+
+`ntske-test` is a tool for testing servers that implement the Key Establishment
+protocol of the
+https://datatracker.ietf.org/doc/draft-ietf-ntp-using-nts-for-ntp/[Network Time
+Security (NTS)] authentication mechanism.
+
+If has a "conformance" mode for testing various corner cases of the protocol
+and also a "benchmark" mode for testing the performance of the implementation.
+
+== Requirements
+
+- C compiler
+- `make`
+- `pkg-config`
+- `gnutls` (with development files)
+
+== Usage
+
+```
+ntske-test MODE [OPTION]... HOST
+
+Modes:
+        -c              Test conformance
+        -b              Test performance
+
+Options:
+        -p PORT         Set server NTS-KE port (4460)
+        -t THREADS      Set number of threads for performance tests (8)
+        -m MILLISECONDS Set minimum random delay inserted between I/O (0)
+        -M MILLISECONDS Set maximum random delay inserted between I/O (10)
+        -d              Print debug messages
+        -h              Print this help message
+```
+
+== Example
+
+```
+$ ./ntske-test -c nts.example.net
+Testing server nts.example.net (10.1.1.123:4460)
+
+TLSv1.3 connection                      (16+848)        PASS
+Rejection of TLSv1.2 connection         (16+848)        FAIL
+ALPN "ntske/1"                          (16+848)        PASS
+Rejection of unknown ALPN               (16+0)          PASS
+Minimal valid request                   (16+848)        PASS
+Number of cookies                       (16+848)        PASS
+Missing NEXT_PROTOCOL                   (10+10)         PASS
+Unknown NEXT_PROTOCOL                   (16+10)         PASS
+Multi-value NEXT_PROTOCOL               (70+848)        PASS
+Missing AEAD_ALGORITHM                  (10+10)         PASS
+Unknown AEAD_ALGORITHM                  (16+10)         PASS
+Multi-value AEAD_ALGORITHM              (70+848)        PASS
+Unknown SERVER_NEGOTIATION              (30+848)        PASS
+Unknown PORT_NEGOTIATION                (22+848)        PASS
+Unknown critical record                 (30+10)         FAIL
+Unknown non-critical record             (30+848)        PASS
+Missing ENF_OF_MESSAGE                  (12+0)          PASS
+Slow request                            (52+848)        PASS
+Long request                            (1024+848)      PASS
+Very long request (not required)        (16577+0)       -
+```
+
+```
+$ ./ntske-test -b nts.example.net -t 256
+Testing server nts.example.net (10.1.1.123:4460)
+
+3096 successful sessions/sec, 0 failed sessions, max 133 concurrent sessions
+3318 successful sessions/sec, 0 failed sessions, max 151 concurrent sessions
+3305 successful sessions/sec, 0 failed sessions, max 147 concurrent sessions
+3300 successful sessions/sec, 0 failed sessions, max 140 concurrent sessions
+3314 successful sessions/sec, 0 failed sessions, max 148 concurrent sessions
+3300 successful sessions/sec, 0 failed sessions, max 147 concurrent sessions
+```
+
+== Author
+
+Miroslav Lichvar <mlichvar@redhat.com>
+
+== License
+
+GPLv2
