@@ -594,7 +594,7 @@ static void run_conf_tests(void) {
 
 	reset_test(&test);
 	test.in.no_end = 1;
-	run_test(&test, "Missing ENF_OF_MESSAGE");
+	run_test(&test, "Missing END_OF_MESSAGE");
 	set_result(test.out.connection && test.out.handshake && !test.out.end);
 
 	reset_test(&test);

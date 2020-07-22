@@ -55,7 +55,7 @@ Unknown SERVER_NEGOTIATION              (30+848)        PASS
 Unknown PORT_NEGOTIATION                (22+848)        PASS
 Unknown critical record                 (30+10)         FAIL
 Unknown non-critical record             (30+848)        PASS
-Missing ENF_OF_MESSAGE                  (12+0)          PASS
+Missing END_OF_MESSAGE                  (12+0)          PASS
 Slow request                            (52+848)        PASS
 Long request                            (1024+848)      PASS
 Very long request (not required)        (16577+0)       -
