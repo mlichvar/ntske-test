@@ -172,7 +172,7 @@ static gnutls_session_t create_session(struct test *test)
 }
 
 static int send_request(gnutls_session_t session, struct test *test) {
-	int i, j, r, length, slength, sent, calls;
+	int i, j, r, length, slength, sent, calls, fails;
 	uint16_t *data;
 
 	data = malloc(MAX_MESSAGE_LENGTH);
@@ -253,7 +253,7 @@ static int send_request(gnutls_session_t session, struct test *test) {
 	length = i * sizeof data[0];
 	assert(length <= MAX_MESSAGE_LENGTH);
 
-	for (sent = calls = 0; sent < length; sent += r, calls++) {
+	for (sent = calls = fails = 0; sent < length; sent += r, calls++) {
 		if (max_delay > 0 && min_delay <= max_delay)
 			usleep(random() % (max_delay - min_delay + 1) + min_delay);
 
@@ -262,10 +262,17 @@ static int send_request(gnutls_session_t session, struct test *test) {
 			slength = test->in.max_send_length;
 
 		r = gnutls_record_send(session, (unsigned char *)data + sent, slength);
-		if (r < 0 && gnutls_error_is_fatal(r)) {
-			if (debug)
-				fprintf(stderr, "send failed : %s\n", gnutls_strerror(r));
-			break;
+		if (r < 0) {
+			if (gnutls_error_is_fatal(r)) {
+				if (debug)
+					fprintf(stderr, "send failed : %s\n", gnutls_strerror(r));
+				break;
+			} else if (++fails >= 10) {
+				if (debug)
+					fprintf(stderr, "Session timed out\n");
+				break;
+			}
+			r = 0;
 		}
 	}
 
