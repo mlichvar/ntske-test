@@ -574,7 +574,7 @@ static void run_conf_tests(void) {
 	reset_test(&test);
 	test.in.unknown_alpn = 1;
 	run_test(&test, "Rejection of unknown ALPN");
-	set_result(test.out.handshake && !test.out.alpn && !test.out.end);
+	set_result(test.out.connection && !test.out.alpn && !test.out.end);
 
 	reset_test(&test);
 	run_test(&test, "Minimal valid request");
