@@ -43,10 +43,12 @@ struct test {
 	struct {
 		int tls12;
 		int unknown_alpn;
+		int next_protocol_records;
+		int next_protocol_values;
 		int next_protocol;
-		int next_protocols;
+		int aead_algorithm_records;
+		int aead_algorithm_values;
 		int aead_algorithm;
-		int aead_algorithms;
 		int server_negotiation;
 		int port_negotiation;
 		int unknown_critical;
@@ -65,9 +67,13 @@ struct test {
 		int no_unknown_critical;
 		int end;
 
+		int next_protocol_records;
+		int next_protocol_values;
 		int next_protocol;
-		int error;
+		int aead_algorithm_records;
+		int aead_algorithm_values;
 		int aead_algorithm;
+		int error;
 		int cookies;
 	} out;
 };
@@ -172,7 +178,7 @@ static gnutls_session_t create_session(struct test *test)
 }
 
 static int send_request(gnutls_session_t session, struct test *test) {
-	int i, j, r, length, slength, sent, calls, fails;
+	int i, j, k, r, length, slength, sent, calls, fails;
 	uint16_t *data;
 
 	data = malloc(MAX_MESSAGE_LENGTH);
@@ -198,21 +204,19 @@ static int send_request(gnutls_session_t session, struct test *test) {
 	}
 
 	/* NEXT_PROTOCOL */
-	if (test->in.next_protocol >= 0) {
-		for (j = 0; j < test->in.next_protocols; j++) {
-			data[i++] = htons(CRITICAL_BIT | 1);
-			data[i++] = htons(2);
+	for (j = 0; j < test->in.next_protocol_records; j++) {
+		data[i++] = htons(CRITICAL_BIT | 1);
+		data[i++] = htons(2 * test->in.next_protocol_values);
+		for (k = 0; k < test->in.next_protocol_values; k++)
 			data[i++] = htons(test->in.next_protocol);
-		}
 	}
 
 	/* AEAD_ALGORITHM */
-	if (test->in.aead_algorithm >= 0) {
-		for (j = 0; j < test->in.aead_algorithms; j++) {
-			data[i++] = htons(CRITICAL_BIT | 4);
-			data[i++] = htons(2);
+	for (j = 0; j < test->in.aead_algorithm_records; j++) {
+		data[i++] = htons(CRITICAL_BIT | 4);
+		data[i++] = htons(2 * test->in.aead_algorithm_values);
+		for (k = 0; k < test->in.aead_algorithm_values; k++)
 			data[i++] = htons(test->in.aead_algorithm);
-		}
 	}
 
 	/* SERVER_NEGOTIATION */
@@ -369,7 +373,11 @@ static int receive_response(gnutls_session_t session, struct test *test) {
 					test->out.end = 1;
 				break;
 			case 1: /* NEXT_PROTOCOL */
-				if (type & CRITICAL_BIT && blength == 2)
+				if (!(type & CRITICAL_BIT))
+					break;
+				test->out.next_protocol_records++;
+				test->out.next_protocol_values = blength / 2;
+				if (test->out.next_protocol_values > 0)
 					test->out.next_protocol = (d[4] << 8) | d[5];
 				break;
 			case 2: /* ERROR */
@@ -379,7 +387,9 @@ static int receive_response(gnutls_session_t session, struct test *test) {
 			case 3: /* WARNING */
 				break;
 			case 4: /* AEAD_ALGORITHM */
-				if (blength == 2)
+				test->out.aead_algorithm_records++;
+				test->out.aead_algorithm_values = blength / 2;
+				if (test->out.aead_algorithm_values > 0)
 					test->out.aead_algorithm = (d[4] << 8) | d[5];
 				break;
 			case 5: /* COOKIE */
@@ -454,19 +464,23 @@ error:
 static void reset_test(struct test *test) {
 	memset(test, 0, sizeof *test);
 
+	test->in.next_protocol_records = 1;
+	test->in.next_protocol_values = 1;
 	test->in.next_protocol = 0;
-	test->in.next_protocols = 1;
+	test->in.aead_algorithm_records = 1;
+	test->in.aead_algorithm_values = 1;
 	test->in.aead_algorithm = 15;
-	test->in.aead_algorithms = 1;
 	test->in.server_negotiation = -1;
 	test->in.port_negotiation = -1;
 	test->in.unknown_critical = -1;
 	test->in.unknown_noncritical = -1;
 	test->in.max_send_length = MAX_MESSAGE_LENGTH;
 
+	test->out.next_protocol_values = -1;
 	test->out.next_protocol = -1;
-	test->out.error = -1;
+	test->out.aead_algorithm_values = -1;
 	test->out.aead_algorithm = -1;
+	test->out.error = -1;
 }
 
 static void run_test(struct test *test, const char *desc) {
@@ -490,10 +504,12 @@ static void run_test(struct test *test, const char *desc) {
 	}
 
 	if (debug)
-		fprintf(stderr, "Result: connection=%d handshake=%d no_unknown_critical=%d end=%d next_protocol=%d error=%d aead_algorithm=%d cookies=%d\n",
-			test->out.connection, test->out.handshake, test->out.no_unknown_critical,
-			test->out.end, test->out.next_protocol, test->out.error,
-			test->out.aead_algorithm, test->out.cookies);
+		fprintf(stderr, "Result: connection=%d handshake=%d end=%d no_unknown_critical=%d next_protocol=(%d,%d,%d) aead_algorithm=(%d,%d,%d) error=%d cookies=%d\n",
+			test->out.connection, test->out.handshake, test->out.end,
+			test->out.no_unknown_critical, test->out.next_protocol_records,
+			test->out.next_protocol_values, test->out.next_protocol,
+			test->out.aead_algorithm_records, test->out.aead_algorithm_values,
+			test->out.aead_algorithm, test->out.error, test->out.cookies);
 }
 
 static int is_test_sane(struct test *test) {
@@ -503,8 +519,11 @@ static int is_test_sane(struct test *test) {
 
 static int is_test_ok(struct test *test) {
 	return is_test_sane(test) &&
-		test->out.next_protocol == 0 && test->out.error == -1 &&
-		test->out.aead_algorithm == 15 && test->out.cookies > 0;
+		test->out.next_protocol_records == 1 && test->out.next_protocol_values == 1 &&
+		test->out.next_protocol == 0 &&
+		test->out.aead_algorithm_records == 1 && test->out.aead_algorithm_values == 1 &&
+		test->out.aead_algorithm == 15 &&
+		test->out.error == -1 && test->out.cookies > 0;
 }
 
 static void set_result(int pass) {
@@ -543,34 +562,56 @@ static void run_conf_tests(void) {
 	set_result(is_test_ok(&test) && test.out.cookies == 8);
 
 	reset_test(&test);
-	test.in.next_protocol = -1;
-	run_test(&test, "Missing NEXT_PROTOCOL");
+	test.in.next_protocol_records = 0;
+	run_test(&test, "Missing NEXT_PROTOCOL record");
 	set_result(is_test_sane(&test) && test.out.error == 1);
 
 	reset_test(&test);
-	test.in.next_protocol = 100;
-	run_test(&test, "Unknown NEXT_PROTOCOL");
+	test.in.aead_algorithm_records = 0;
+	run_test(&test, "Missing AEAD_ALGORITHM record");
 	set_result(is_test_sane(&test) && test.out.error == 1);
 
 	reset_test(&test);
-	test.in.next_protocols = 10;
-	run_test(&test, "Multi-value NEXT_PROTOCOL");
+	test.in.next_protocol_records = 2;
+	run_test(&test, "Multiple NEXT_PROTOCOL records");
+	set_result(is_test_sane(&test) && test.out.error == 1);
+
+	reset_test(&test);
+	test.in.aead_algorithm_records = 2;
+	run_test(&test, "Multiple AEAD_ALGORITHM records");
+	set_result(is_test_sane(&test) && test.out.error == 1);
+
+	reset_test(&test);
+	test.in.next_protocol_values = 0;
+	run_test(&test, "Missing NEXT_PROTOCOL value");
+	set_result(is_test_sane(&test) && test.out.error == 1);
+
+	reset_test(&test);
+	test.in.aead_algorithm_values = 0;
+	run_test(&test, "Missing AEAD_ALGORITHM value");
+	set_result(is_test_sane(&test) && test.out.error == 1);
+
+	reset_test(&test);
+	test.in.next_protocol_values = 10;
+	run_test(&test, "Multiple NEXT_PROTOCOL values");
 	set_result(is_test_ok(&test));
 
 	reset_test(&test);
-	test.in.aead_algorithm = -1;
-	run_test(&test, "Missing AEAD_ALGORITHM");
-	set_result(is_test_sane(&test) && test.out.error == 1);
-
-	reset_test(&test);
-	test.in.aead_algorithm = 100;
-	run_test(&test, "Unknown AEAD_ALGORITHM");
-	set_result(is_test_sane(&test) && test.out.error == 1);
-
-	reset_test(&test);
-	test.in.aead_algorithms = 10;
-	run_test(&test, "Multi-value AEAD_ALGORITHM");
+	test.in.aead_algorithm_values = 10;
+	run_test(&test, "Multiple AEAD_ALGORITHM values");
 	set_result(is_test_ok(&test));
+
+	reset_test(&test);
+	test.in.next_protocol = 10000;
+	run_test(&test, "Unknown NEXT_PROTOCOL value");
+	set_result(is_test_sane(&test) &&
+		   test.out.next_protocol_records == 1 && test.out.next_protocol_values == 0);
+
+	reset_test(&test);
+	test.in.aead_algorithm = 10000;
+	run_test(&test, "Unknown AEAD_ALGORITHM value");
+	set_result(is_test_sane(&test) &&
+		   test.out.aead_algorithm_records == 1 && test.out.aead_algorithm_values == 0);
 
 	reset_test(&test);
 	test.in.server_negotiation = 10;
