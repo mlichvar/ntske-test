@@ -55,6 +55,8 @@ struct test {
 		int unknown_noncritical;
 		int no_end;
 		int min_request_length;
+
+		int fuzz;
 		int max_send_length;
 	} in;
 	struct {
@@ -177,6 +179,20 @@ static gnutls_session_t create_session(struct test *test)
 	return session;
 }
 
+static int fuzz_request(unsigned char *data, int length) {
+	if (length <= 0)
+		return 0;
+
+	if ((random() % 8) == 0)
+		length = random() % length + 1;
+
+	do {
+		data[random() % length] ^= random() & 0xff;
+	} while (random() % 4 != 0);
+
+	return length;
+}
+
 static int send_request(gnutls_session_t session, struct test *test) {
 	int i, j, k, r, length, slength, sent, calls, fails;
 	uint16_t *data;
@@ -255,6 +271,10 @@ static int send_request(gnutls_session_t session, struct test *test) {
 	}
 
 	length = i * sizeof data[0];
+
+	if (test->in.fuzz)
+		length = fuzz_request((unsigned char *)data, length);
+
 	assert(length <= MAX_MESSAGE_LENGTH);
 
 	for (sent = calls = fails = 0; sent < length; sent += r, calls++) {
@@ -325,6 +345,9 @@ static int receive_response(gnutls_session_t session, struct test *test) {
 	int r, received, calls, left, records, type, blength;
 	unsigned char *data, *d;
 	struct timeval start_tv, tv;
+
+	if (test->in.fuzz)
+		return 1;
 
 	data = malloc(MAX_MESSAGE_LENGTH);
 	if (!data)
@@ -656,12 +679,27 @@ static void run_conf_tests(void) {
 	printf("-\n");
 }
 
-static void *run_perf_session(void *x) {
+static void *run_perf_session(void *arg) {
+	int fuzz = *(int *)arg;
 	struct test test;
 
-	reset_test(&test);
-
 	while (!quit_perf) {
+		reset_test(&test);
+
+		if (fuzz) {
+			test.in.fuzz = 1;
+			test.in.next_protocol_records = random() % 3;
+			test.in.aead_algorithm_records = random() % 3;
+			if (random() % 4 == 0)
+				test.in.server_negotiation = random() % 512 * 2;
+			if (random() % 4 == 0)
+				test.in.unknown_noncritical = random() % 512 * 2;
+			if (random() % 4 == 0)
+				test.in.min_request_length = random() % 512 * 2;
+			if (random() % 4 == 0)
+				test.in.max_send_length = random() % 100 + 1;
+		}
+
 		if (!run_ntske_session(&test))
 			continue;
 	}
@@ -673,7 +711,7 @@ static void handle_sigint(int x) {
 	quit_perf = 1;
 }
 
-static void run_perf_test(int threads) {
+static void run_perf_test(int threads, int fuzz) {
 	pthread_t pthreads[threads];
 	struct test test;
 	struct sigaction sa;
@@ -694,7 +732,7 @@ static void run_perf_test(int threads) {
 	}
 
 	for (i = 0; i < threads; i++) {
-		if (pthread_create(&pthreads[i], NULL, run_perf_session, NULL) < 0) {
+		if (pthread_create(&pthreads[i], NULL, run_perf_session, &fuzz) < 0) {
 			fprintf(stderr, "Could not create thread\n");
 			exit(4);
 		}
@@ -726,8 +764,9 @@ static void print_help(void) {
 	printf("\t-c\t\tTest conformance\n");
 	printf("\t-b\t\tTest performance\n");
 	printf("\nOptions:\n");
+	printf("\t-f\t\tFuzz requests in performance test\n");
 	printf("\t-p PORT\t\tSet server NTS-KE port (4460)\n");
-	printf("\t-t THREADS\tSet number of threads for performance tests (8)\n");
+	printf("\t-t THREADS\tSet number of threads for performance test (8)\n");
 	printf("\t-m MILLISECONDS\tSet minimum random delay inserted between I/O (0)\n");
 	printf("\t-M MILLISECONDS\tSet maximum random delay inserted between I/O (10)\n");
 	printf("\t-d\t\tPrint debug messages\n");
@@ -735,15 +774,16 @@ static void print_help(void) {
 }
 
 int main(int argc, char **argv) {
-	int threads = 8, conf_test = 0, perf_test = 0;
+	int fuzz = 0, threads = 8, conf_test = 0, perf_test = 0;
 	const char *port = "4460";
 	struct addrinfo *addrinfo;
        	char buf[128];
 	int opt;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
+	srandom(time(NULL));
 
-	while ((opt = getopt(argc, argv, "bcdhm:M:p:r:t:")) != -1) {
+	while ((opt = getopt(argc, argv, "bcdfhm:M:p:r:t:")) != -1) {
 		switch (opt) {
 			case 'c':
 				conf_test = 1;
@@ -753,6 +793,9 @@ int main(int argc, char **argv) {
 				break;
 			case 'd':
 				debug = 1;
+				break;
+			case 'f':
+				fuzz = 1;
 				break;
 			case 'm':
 				min_delay = 1000 * atoi(optarg);
@@ -775,7 +818,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	if (!(perf_test || conf_test) || optind >= argc) {
+	if (!(perf_test ^ conf_test) || (!perf_test && fuzz) || optind >= argc) {
 		print_help();
 		exit(1);
 	}
@@ -832,7 +875,7 @@ int main(int argc, char **argv) {
 		run_conf_tests();
 
 	if (perf_test)
-		run_perf_test(threads);
+		run_perf_test(threads, fuzz);
 
 	gnutls_priority_deinit(priority_cache_tls13);
 	gnutls_priority_deinit(priority_cache_tls12);
