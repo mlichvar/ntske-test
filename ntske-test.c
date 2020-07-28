@@ -858,11 +858,9 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "Testing server %s (%s:%s)\n\n", server_name ? server_name : "?", buf, port);
 
 	if (gnutls_priority_init2(&priority_cache_tls13,
-				"-VERS-SSL3.0:-VERS-TLS1.0:-VERS-TLS1.1:-VERS-TLS1.2",
-				NULL, GNUTLS_PRIORITY_INIT_DEF_APPEND) < 0 ||
+				"NORMAL:-VERS-ALL:+VERS-TLS1.3", NULL, 0) < 0 ||
 	    gnutls_priority_init2(&priority_cache_tls12,
-				"-VERS-SSL3.0:-VERS-TLS1.0:-VERS-TLS1.1:-VERS-TLS1.3",
-				NULL, GNUTLS_PRIORITY_INIT_DEF_APPEND) < 0 ||
+				"NORMAL:-VERS-ALL:+VERS-TLS1.2", NULL, 0) < 0 ||
 	    gnutls_certificate_allocate_credentials(&credentials) < 0 ||
 	    gnutls_certificate_set_x509_system_trust(credentials) < 0) {
 		fprintf(stderr, "Could not get/set priority cache or credentials\n");
